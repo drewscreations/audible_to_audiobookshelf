@@ -17,6 +17,10 @@ The Audible export often contains duplicate rows for the same underlying listen
 We de-duplicate by (date, ASIN, startPos, endPos, durationMs).
 
 Usage (example)
+  # With secrets.txt (recommended)
+  python audible_to_audiobookshelf.py --csv Listening.csv
+
+  # Or explicit flags
   python audible_to_audiobookshelf.py \
     --abs-url http://NAS:13378 \
     --token "<ABS API token>" \
@@ -41,12 +45,54 @@ import platform
 import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     import requests  # type: ignore
 except Exception as e:  # pragma: no cover
     requests = None
+
+
+# ------------------------- Secrets loader -------------------------
+
+def load_secrets(path: str) -> dict:
+    """Load key=value pairs from a secrets file.
+
+    Format:
+      ABS_URL=http://nas:13378
+      ABS_TOKEN=...
+
+    - Lines starting with # are ignored
+    - Blank lines are ignored
+    - Whitespace around keys/values is stripped
+    - Surrounding single/double quotes around values are removed
+    """
+    out: dict = {}
+    if not path:
+        return out
+    try:
+        fp = Path(path)
+        if not fp.exists():
+            return out
+        for raw in fp.read_text(encoding='utf-8').splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k = k.strip()
+            v = v.strip()
+            # Strip optional surrounding quotes
+            if len(v) >= 2 and ((v[0] == v[-1] == "'") or (v[0] == v[-1] == '\"')):
+                v = v[1:-1].strip()
+            if k:
+                out[k] = v
+    except Exception:
+        # Don't hard-fail if secrets are unreadable; user can pass flags/env instead.
+        return {}
+    return out
 
 
 # ------------------------- Audible CSV parsing -------------------------
@@ -280,7 +326,22 @@ class ABSClient:
         return self.get("/api/me")
 
     def libraries(self) -> List[Dict[str, Any]]:
-        return self.get("/api/libraries")
+        """Return list of libraries.
+
+        The ABS API returns an object like {"libraries": [...]} for
+        GET /api/libraries (per the official API docs). We normalize that into a
+        plain list for the rest of the script.
+        """
+        data = self.get("/api/libraries")
+        if isinstance(data, dict):
+            libs = data.get("libraries")
+            if isinstance(libs, list):
+                return libs
+        if isinstance(data, list):
+            return data
+        raise ValueError(
+            f"Unexpected response from GET /api/libraries: {type(data).__name__}"
+        )
 
     def library_items(self, library_id: str) -> Dict[str, Any]:
         # limit=0 => no limit (returns all results) per docs.
@@ -597,30 +658,70 @@ def main() -> int:
     if not os.path.exists(default_csv) and os.path.exists("/mnt/data/Listening.csv"):
         default_csv = "/mnt/data/Listening.csv"
 
+    # Prefer a local secrets.txt if present; otherwise /mnt/data/secrets.txt
+    default_secrets = "secrets.txt"
+    if not os.path.exists(default_secrets) and os.path.exists("/mnt/data/secrets.txt"):
+        default_secrets = "/mnt/data/secrets.txt"
+
     ap = argparse.ArgumentParser(description="Import Audible Listening.csv into Audiobookshelf")
     ap.add_argument("--csv", default=default_csv, help="Path to Audible Listening.csv")
-    ap.add_argument("--abs-url", default=os.getenv("ABS_URL", ""), help="Audiobookshelf base URL (e.g. http://nas:13378)")
-    ap.add_argument("--token", default=os.getenv("ABS_TOKEN", ""), help="Audiobookshelf API token (Bearer)")
-    ap.add_argument("--library-id", default=os.getenv("ABS_LIBRARY_ID", ""), help="Only sync to this library id (optional)")
-    ap.add_argument("--since", default=os.getenv("AUDIBLE_SINCE", ""), help="Only import dates >= YYYY-MM-DD")
-    ap.add_argument("--max-rows", type=int, default=int(os.getenv("MAX_ROWS", "0")) or 0, help="Limit number of CSV rows to read (0 = no limit)")
-    ap.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "250")), help="Sessions per API call")
-    ap.add_argument("--finish-threshold", type=float, default=float(os.getenv("FINISH_THRESHOLD", "0.99")), help="Mark finished at this progress fraction")
+    ap.add_argument(
+        "--secrets",
+        default=default_secrets,
+        help=(
+            "Path to secrets.txt (key=value lines). Supported keys: ABS_URL, ABS_TOKEN, ABS_LIBRARY_ID, AUDIBLE_SINCE. "
+            "CLI flags override secrets.txt."
+        ),
+    )
+
+    # Keep CLI defaults empty so we can resolve from secrets/env in a predictable order:
+    # CLI > secrets.txt > environment
+    ap.add_argument("--abs-url", default="", help="Audiobookshelf base URL (e.g. http://nas:13378)")
+    ap.add_argument("--token", default="", help="Audiobookshelf API token (Bearer)")
+    ap.add_argument("--library-id", default="", help="Only sync to this library id (optional)")
+    ap.add_argument("--since", default="", help="Only import dates >= YYYY-MM-DD")
+
+    ap.add_argument(
+        "--max-rows",
+        type=int,
+        default=int(os.getenv("MAX_ROWS", "0")) or 0,
+        help="Limit number of CSV rows to read (0 = no limit)",
+    )
+    ap.add_argument(
+        "--batch-size",
+        type=int,
+        default=int(os.getenv("BATCH_SIZE", "250")),
+        help="Sessions per API call",
+    )
+    ap.add_argument(
+        "--finish-threshold",
+        type=float,
+        default=float(os.getenv("FINISH_THRESHOLD", "0.99")),
+        help="Mark finished at this progress fraction",
+    )
     ap.add_argument("--dry-run", action="store_true", help="Do everything except send API requests")
     ap.add_argument("--no-progress", action="store_true", help="Do not update media progress")
     ap.add_argument("--report", default=os.getenv("IMPORT_REPORT", ""), help="Write a JSON report to this path")
 
     args = ap.parse_args()
 
+    secrets = load_secrets(args.secrets)
+
+    abs_url = (args.abs_url.strip() or secrets.get("ABS_URL") or os.getenv("ABS_URL", "")).strip()
+    token = (args.token.strip() or secrets.get("ABS_TOKEN") or os.getenv("ABS_TOKEN", "")).strip()
+
+    library_id = (args.library_id.strip() or secrets.get("ABS_LIBRARY_ID") or os.getenv("ABS_LIBRARY_ID", "")).strip()
+    since = (args.since.strip() or secrets.get("AUDIBLE_SINCE") or os.getenv("AUDIBLE_SINCE", "")).strip()
+
     return run_sync(
         csv_path=args.csv,
-        abs_url=args.abs_url,
-        token=args.token,
+        abs_url=abs_url,
+        token=token,
         dry_run=bool(args.dry_run),
         batch_size=max(1, int(args.batch_size)),
-        since=args.since.strip() or None,
+        since=since or None,
         finish_threshold=max(0.0, min(1.0, float(args.finish_threshold))),
-        only_library_id=(args.library_id.strip() or None),
+        only_library_id=(library_id or None),
         no_progress=bool(args.no_progress),
         report_path=(args.report.strip() or None),
         max_rows=(args.max_rows if args.max_rows and args.max_rows > 0 else None),
@@ -628,4 +729,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+
     raise SystemExit(main())
