@@ -306,20 +306,40 @@ class ABSClient:
             path = "/" + path
         return self.base_url + path
 
+    def _parse_response(self, r):
+        """Parse ABS API responses safely.
+
+        Some ABS endpoints reply with 204 No Content or an empty body,
+        and some reply with non-JSON text. This helper avoids JSON
+        decoding crashes and returns either parsed JSON, raw text, or None.
+        """
+        # Treat 204 / empty as None
+        if r.status_code == 204 or not r.content or not r.text.strip():
+            return None
+        ctype = (r.headers.get('Content-Type') or '').lower()
+        if 'application/json' in ctype or 'application/ld+json' in ctype or ctype.endswith('+json'):
+            try:
+                return r.json()
+            except Exception:
+                # Fall back to text to keep the sync going, but include status info
+                return {'_non_json_body': r.text, '_status_code': r.status_code}
+        # Non-JSON response
+        return r.text
+
     def get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         r = requests.get(self._url(path), headers=self._headers(), params=params, timeout=self.timeout_s)
         r.raise_for_status()
-        return r.json() if r.content else None
+        return self._parse_response(r)
 
     def post(self, path: str, body: Any) -> Any:
         r = requests.post(self._url(path), headers=self._headers(), data=json.dumps(body), timeout=self.timeout_s)
         r.raise_for_status()
-        return r.json() if r.content else None
+        return self._parse_response(r)
 
     def patch(self, path: str, body: Any) -> Any:
         r = requests.patch(self._url(path), headers=self._headers(), data=json.dumps(body), timeout=self.timeout_s)
         r.raise_for_status()
-        return r.json() if r.content else None
+        return self._parse_response(r)
 
     # Convenience API wrappers
     def me(self) -> Dict[str, Any]:
@@ -413,7 +433,8 @@ def run_sync(
     batch_size: int,
     since: Optional[str],
     finish_threshold: float,
-    only_library_id: Optional[str],
+    library_spec: Optional[str],
+    select_libraries: bool,
     no_progress: bool,
     report_path: Optional[str],
     max_rows: Optional[int] = None,
@@ -456,18 +477,87 @@ def run_sync(
     libs = client.libraries() or []
     # Choose book libraries
     book_libs = [l for l in libs if (l.get("mediaType") == "book")]
-    if only_library_id:
-        book_libs = [l for l in book_libs if l.get("id") == only_library_id]
 
     if not book_libs:
-        print("ERROR: No book libraries found (or none matched --library-id)", file=sys.stderr)
+        print("ERROR: No book libraries found", file=sys.stderr)
         return 2
 
-    print(f"Audiobookshelf: user={me.get('username', user_id)} | book libraries={len(book_libs)}")
+    def _normalize_name(s: str) -> str:
+        return (s or "").strip().lower()
+
+    def _resolve_spec(spec: str) -> List[dict]:
+        """Resolve a comma-separated spec of library ids and/or names into library dicts."""
+        tokens = [t.strip() for t in (spec or "").split(",") if t.strip()]
+        if not tokens:
+            return []
+        out: List[dict] = []
+        by_id = {str(l.get("id")): l for l in book_libs if l.get("id")}
+        by_name = { _normalize_name(str(l.get("name") or "")): l for l in book_libs }
+        for t in tokens:
+            # Exact id match
+            if t in by_id:
+                out.append(by_id[t])
+                continue
+            # Case-insensitive name match
+            key = _normalize_name(t)
+            if key in by_name and by_name[key] not in out:
+                out.append(by_name[key])
+                continue
+            # Prefix name match (if unambiguous)
+            matches = [l for l in book_libs if _normalize_name(str(l.get("name") or "")).startswith(key)]
+            if len(matches) == 1 and matches[0] not in out:
+                out.append(matches[0])
+                continue
+        return out
+
+    selected_libs: List[dict] = []
+
+    if library_spec:
+        selected_libs = _resolve_spec(library_spec)
+        if not selected_libs:
+            print(f"ERROR: No book libraries matched spec: {library_spec!r}", file=sys.stderr)
+            print("Available book libraries:", file=sys.stderr)
+            for i, l in enumerate(book_libs, 1):
+                print(f"  {i}) {l.get('name')} ({l.get('id')})", file=sys.stderr)
+            return 2
+    elif select_libraries or sys.stdin.isatty():
+        # Interactive selection
+        print("Available Audiobookshelf book libraries:")
+        for i, l in enumerate(book_libs, 1):
+            print(f"  {i}) {l.get('name')} ({l.get('id')})")
+
+        try:
+            choice = input("Select libraries to update (numbers/comma, 'all', or blank=all): ").strip()
+        except EOFError:
+            choice = ""
+
+        if not choice or choice.lower() in ("all", "*"):
+            selected_libs = list(book_libs)
+        else:
+            picks: List[int] = []
+            for part in choice.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if part.isdigit():
+                    picks.append(int(part))
+            picks = [p for p in picks if 1 <= p <= len(book_libs)]
+            selected_libs = [book_libs[p - 1] for p in dict.fromkeys(picks).keys()]  # preserve order, de-dupe
+            if not selected_libs:
+                print("ERROR: No valid library selections.", file=sys.stderr)
+                return 2
+    else:
+        # Non-interactive default: all book libs
+        selected_libs = list(book_libs)
+
+    print(
+        f"Audiobookshelf: user={me.get('username', user_id)} | "
+        f"book libraries total={len(book_libs)} | selected={len(selected_libs)}"
+    )
 
     # Fetch items per library (minified)
     items_by_library: Dict[str, Dict[str, Any]] = {}
-    for lib in book_libs:
+    for lib in selected_libs:
         lib_id = lib.get("id")
         name = lib.get("name") or lib_id
         print(f"Fetching items for library: {name} ({lib_id}) ...")
@@ -669,7 +759,7 @@ def main() -> int:
         "--secrets",
         default=default_secrets,
         help=(
-            "Path to secrets.txt (key=value lines). Supported keys: ABS_URL, ABS_TOKEN, ABS_LIBRARY_ID, AUDIBLE_SINCE. "
+            "Path to secrets.txt (key=value lines). Supported keys: ABS_URL, ABS_TOKEN, ABS_LIBRARY_ID (legacy), ABS_LIBRARIES, AUDIBLE_SINCE. "
             "CLI flags override secrets.txt."
         ),
     )
@@ -679,6 +769,16 @@ def main() -> int:
     ap.add_argument("--abs-url", default="", help="Audiobookshelf base URL (e.g. http://nas:13378)")
     ap.add_argument("--token", default="", help="Audiobookshelf API token (Bearer)")
     ap.add_argument("--library-id", default="", help="Only sync to this library id (optional)")
+    ap.add_argument(
+        "--libraries",
+        default="",
+        help="Comma-separated library IDs or names to include (optional). If omitted, you can select interactively.",
+    )
+    ap.add_argument(
+        "--select-libraries",
+        action="store_true",
+        help="Prompt to select which libraries to update (interactive)",
+    )
     ap.add_argument("--since", default="", help="Only import dates >= YYYY-MM-DD")
 
     ap.add_argument(
@@ -710,7 +810,19 @@ def main() -> int:
     abs_url = (args.abs_url.strip() or secrets.get("ABS_URL") or os.getenv("ABS_URL", "")).strip()
     token = (args.token.strip() or secrets.get("ABS_TOKEN") or os.getenv("ABS_TOKEN", "")).strip()
 
-    library_id = (args.library_id.strip() or secrets.get("ABS_LIBRARY_ID") or os.getenv("ABS_LIBRARY_ID", "")).strip()
+    legacy_library_id = (args.library_id.strip() or secrets.get("ABS_LIBRARY_ID") or os.getenv("ABS_LIBRARY_ID", "")).strip()
+    libraries_spec = (args.libraries.strip() or secrets.get("ABS_LIBRARIES") or os.getenv("ABS_LIBRARIES", "")).strip()
+
+    # Back-compat: if only a single library id is provided (old flag / key), treat it as the libraries spec.
+    if not libraries_spec and legacy_library_id:
+        libraries_spec = legacy_library_id
+    elif libraries_spec and legacy_library_id:
+        # Merge legacy id into the list if it's not already present
+        parts = [p.strip() for p in libraries_spec.split(",") if p.strip()]
+        if legacy_library_id not in parts:
+            parts.append(legacy_library_id)
+        libraries_spec = ",".join(parts)
+
     since = (args.since.strip() or secrets.get("AUDIBLE_SINCE") or os.getenv("AUDIBLE_SINCE", "")).strip()
 
     return run_sync(
@@ -721,7 +833,8 @@ def main() -> int:
         batch_size=max(1, int(args.batch_size)),
         since=since or None,
         finish_threshold=max(0.0, min(1.0, float(args.finish_threshold))),
-        only_library_id=(library_id or None),
+        library_spec=(libraries_spec or None),
+        select_libraries=bool(args.select_libraries),
         no_progress=bool(args.no_progress),
         report_path=(args.report.strip() or None),
         max_rows=(args.max_rows if args.max_rows and args.max_rows > 0 else None),
