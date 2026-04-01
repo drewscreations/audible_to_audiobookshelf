@@ -204,6 +204,14 @@ Example cron entry:
 Some Audiobookshelf versions return empty/non-JSON responses for certain endpoints. If you see odd behavior:
 - run with `--no-progress` to import sessions only (stats still work)
 
+### Book missing or showing up twice in Audiobookshelf
+- **Check for nested folders.** Libation can sometimes download one book’s folder inside another book’s folder (e.g., `Book 8 [ASIN]/Book 7 [ASIN]/Book7.m4b`). ABS treats all audio files under one folder as a single item, so it will show the wrong title and create duplicates.
+- **Fix:** Move the nested folder to the top level of your library directory (on the server/NAS, not just locally).
+- **After fixing:** A simple library rescan may report “no changes needed” due to ABS metadata caching. To fully fix:
+  1. Delete the stale item via the API: `DELETE /api/items/{item-id}`
+  2. Force rescan: `POST /api/libraries/{library-id}/scan?force=1`
+  3. ABS will re-discover the folder and create a fresh entry with correct metadata.
+
 ### “Unmatched ASINs”
 - Your Audiobookshelf items likely lack ASIN metadata.
 - Check one item’s metadata in Audiobookshelf and confirm it contains the correct ASIN.
