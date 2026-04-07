@@ -31,6 +31,7 @@ services:
     volumes:
       - libation-config:/libation-config
       - web-data:/app/data
+      - /share/JellyWhale/Audiobooks:/audiobooks
     depends_on:
       - libation
     restart: unless-stopped

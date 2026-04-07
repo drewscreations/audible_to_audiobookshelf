@@ -87,6 +87,14 @@ export class ABSClient {
     return this.request("PATCH", "/api/me/progress/batch/update", updates);
   }
 
+  async getItem(itemId: string): Promise<ABSLibraryItem> {
+    return this.request<ABSLibraryItem>("GET", `/api/items/${itemId}`);
+  }
+
+  async scanLibrary(libraryId: string): Promise<void> {
+    await this.request("POST", `/api/libraries/${libraryId}/scan`);
+  }
+
   async getCoverUrl(itemId: string): Promise<string> {
     return `${this.baseUrl}/api/items/${itemId}/cover`;
   }
