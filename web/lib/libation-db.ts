@@ -67,7 +67,7 @@ export function getLibationBooks(): LibationBook[] {
       LEFT JOIN BookContributor bc ON bc.BookId = b.BookId
       LEFT JOIN Contributors c ON c.ContributorId = bc.ContributorId
       LEFT JOIN UserDefinedItem udi ON udi.BookId = b.BookId
-      WHERE b.ContentType = 0
+      WHERE b.ContentType IN (0, 1)
         AND (lb.IsDeleted IS NULL OR lb.IsDeleted = 0)
       GROUP BY b.BookId
       ORDER BY lb.DateAdded DESC
@@ -150,7 +150,7 @@ export function getLibationStats(): {
         `
       SELECT COUNT(*) as count FROM Books b
       LEFT JOIN LibraryBooks lb ON lb.BookId = b.BookId
-      WHERE b.ContentType = 0
+      WHERE b.ContentType IN (0, 1)
         AND (lb.IsDeleted IS NULL OR lb.IsDeleted = 0)
     `
       )
@@ -162,7 +162,7 @@ export function getLibationStats(): {
       SELECT COUNT(*) as count FROM Books b
       LEFT JOIN UserDefinedItem udi ON udi.BookId = b.BookId
       LEFT JOIN LibraryBooks lb ON lb.BookId = b.BookId
-      WHERE b.ContentType = 0
+      WHERE b.ContentType IN (0, 1)
         AND (lb.IsDeleted IS NULL OR lb.IsDeleted = 0)
         AND udi.BookStatus = 1
     `
