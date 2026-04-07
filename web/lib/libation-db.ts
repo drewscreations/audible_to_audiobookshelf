@@ -35,7 +35,7 @@ function getDbPath(): string {
  */
 export function getLibationBooks(): LibationBook[] {
   const dbPath = getDbPath();
-  const db = new Database(dbPath, { readonly: true });
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
 
   try {
     const rows = db
@@ -63,7 +63,7 @@ export function getLibationBooks(): LibationBook[] {
           LIMIT 1
         ) AS seriesInfo
       FROM Books b
-      LEFT JOIN LibraryBook lb ON lb.BookId = b.BookId
+      LEFT JOIN LibraryBooks lb ON lb.BookId = b.BookId
       LEFT JOIN BookContributor bc ON bc.BookId = b.BookId
       LEFT JOIN Contributors c ON c.ContributorId = bc.ContributorId
       LEFT JOIN UserDefinedItem udi ON udi.BookId = b.BookId
@@ -142,14 +142,14 @@ export function getLibationStats(): {
   notDownloaded: number;
 } {
   const dbPath = getDbPath();
-  const db = new Database(dbPath, { readonly: true });
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
 
   try {
     const total = db
       .prepare(
         `
       SELECT COUNT(*) as count FROM Books b
-      LEFT JOIN LibraryBook lb ON lb.BookId = b.BookId
+      LEFT JOIN LibraryBooks lb ON lb.BookId = b.BookId
       WHERE b.ContentType = 0
         AND (lb.IsDeleted IS NULL OR lb.IsDeleted = 0)
     `
@@ -161,7 +161,7 @@ export function getLibationStats(): {
         `
       SELECT COUNT(*) as count FROM Books b
       LEFT JOIN UserDefinedItem udi ON udi.BookId = b.BookId
-      LEFT JOIN LibraryBook lb ON lb.BookId = b.BookId
+      LEFT JOIN LibraryBooks lb ON lb.BookId = b.BookId
       WHERE b.ContentType = 0
         AND (lb.IsDeleted IS NULL OR lb.IsDeleted = 0)
         AND udi.BookStatus = 1
