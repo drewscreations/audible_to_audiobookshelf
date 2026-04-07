@@ -7,7 +7,7 @@ services:
       - SLEEP_TIME=6h
     volumes:
       - ./libation-config:/config
-      - /volume1/audiobooks:/data
+      - /share/JellyWhale/Audiobooks/Audiobooks:/data
     restart: unless-stopped
 
   web:
