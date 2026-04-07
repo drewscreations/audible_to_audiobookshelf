@@ -2,40 +2,31 @@ services:
   libation:
     image: rmcrackan/libation:latest
     container_name: libation
+    network_mode: host
     environment:
       - SLEEP_TIME=6h
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     volumes:
       - ./libation-config:/config
       - /volume1/audiobooks:/data
     restart: unless-stopped
-    networks:
-      - default
-      - external
 
   web:
     build: ./web
     container_name: audible-abs-web
-    ports:
-      - "3001:3000"
+    network_mode: host
     environment:
       # Audiobookshelf
-      - ABS_URL=http://100.96.84.62:13378
+      - ABS_URL=http://127.0.0.1:13378
       - ABS_TOKEN_DREW=${ABS_TOKEN_DREW}
       - ABS_TOKEN_MO=${ABS_TOKEN_MO}
       - ABS_TOKEN_ROOT=${ABS_TOKEN_ROOT}
       - ABS_TOKEN=${ABS_TOKEN}
       # Portainer (manages Libation container)
-      - PORTAINER_URL=http://100.96.84.62:19900
+      - PORTAINER_URL=http://127.0.0.1:19900
       - PORTAINER_API_KEY=${PORTAINER_API_KEY}
       - PORTAINER_ENDPOINT_ID=3
       # Libation DB (read-only access)
       - LIBATION_CONFIG_PATH=/libation-config
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     user: "0:0"
     volumes:
       - ./libation-config:/libation-config
@@ -43,16 +34,6 @@ services:
     depends_on:
       - libation
     restart: unless-stopped
-    networks:
-      - default
-      - external
-
-networks:
-  external:
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.enable_icc: "true"
-      com.docker.network.bridge.enable_ip_masquerade: "true"
 
 volumes:
   web-data:
