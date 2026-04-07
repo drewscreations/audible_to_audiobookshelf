@@ -174,7 +174,7 @@ async function portainerExec(
 export async function libationScan(
   accounts?: string[]
 ): Promise<{ stdout: string; stderr: string }> {
-  const cmd = ["libationcli", "scan"];
+  const cmd = ["/libation/LibationCli", "scan"];
   if (accounts && accounts.length > 0) {
     cmd.push(...accounts);
   }
@@ -189,7 +189,7 @@ export async function libationDownload(options?: {
   force?: boolean;
   pdfOnly?: boolean;
 }): Promise<{ stdout: string; stderr: string }> {
-  const cmd = ["libationcli", "liberate"];
+  const cmd = ["/libation/LibationCli", "liberate"];
   if (options?.force) cmd.push("--force");
   if (options?.pdfOnly) cmd.push("--pdf");
   if (options?.asin) cmd.push(options.asin);
