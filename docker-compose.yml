@@ -29,7 +29,7 @@ services:
       - LIBATION_CONFIG_PATH=/libation-config
     user: "0:0"
     volumes:
-      - ./libation-config:/libation-config:ro
+      - ./libation-config:/libation-config
       - web-data:/app/data
     depends_on:
       - libation
