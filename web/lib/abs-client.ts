@@ -1,4 +1,9 @@
-import type { ABSUser, ABSLibrary, ABSLibraryItem } from "./types";
+import type {
+  ABSUser,
+  ABSLibrary,
+  ABSLibraryItem,
+  ABSMediaProgress,
+} from "./types";
 
 export class ABSClient {
   private baseUrl: string;
@@ -61,6 +66,14 @@ export class ABSClient {
     return this.request<ABSUser>("GET", "/api/me");
   }
 
+  /** /api/me including the user's full mediaProgress list */
+  async meFull(): Promise<ABSUser & { mediaProgress?: ABSMediaProgress[] }> {
+    return this.request<ABSUser & { mediaProgress?: ABSMediaProgress[] }>(
+      "GET",
+      "/api/me"
+    );
+  }
+
   async libraries(): Promise<ABSLibrary[]> {
     const res = await this.request<{ libraries: ABSLibrary[] }>(
       "GET",
@@ -79,8 +92,14 @@ export class ABSClient {
     return res.results;
   }
 
-  async syncSessions(sessions: unknown[]): Promise<unknown> {
-    return this.request("POST", "/api/session/local-all", sessions);
+  /**
+   * Upsert local playback sessions. ABS expects `{ sessions: [...] }` — a bare
+   * array is silently ignored (200 with no writes).
+   */
+  async syncSessions(sessions: unknown[]): Promise<{
+    results?: Array<{ id: string; success: boolean; error?: string }>;
+  }> {
+    return this.request("POST", "/api/session/local-all", { sessions });
   }
 
   async updateProgress(updates: unknown[]): Promise<unknown> {

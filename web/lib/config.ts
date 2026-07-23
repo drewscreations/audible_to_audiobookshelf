@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: AppConfig = {
     enabled: process.env.AUTO_SYNC_ENABLED !== "false",
     intervalMinutes:
       parseInt(process.env.AUTO_SYNC_INTERVAL_MINUTES || "", 10) || 10,
+    syncProgress: process.env.AUTO_SYNC_PROGRESS !== "false",
   },
 };
 

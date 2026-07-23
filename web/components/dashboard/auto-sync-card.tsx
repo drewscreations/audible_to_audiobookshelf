@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   CircleAlert,
   RefreshCw,
+  Headphones,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { SyncCycleResult, SyncStatus } from "@/lib/types";
@@ -50,20 +51,31 @@ function titles(books: { title: string }[], max = 2): string {
   return names.join(", ") + (extra > 0 ? ` +${extra} more` : "");
 }
 
+function progressText(entry: SyncCycleResult): string | null {
+  const p = entry.progressUpdated ?? 0;
+  const s = entry.sessionsSynced ?? 0;
+  if (p === 0 && s === 0) return null;
+  return `progress: ${p} book${p === 1 ? "" : "s"}${s > 0 ? `, ${s} session${s === 1 ? "" : "s"}` : ""}`;
+}
+
 function summarize(entry: SyncCycleResult): {
-  icon: "download" | "new" | "warning" | "error" | "ok";
+  icon: "download" | "new" | "progress" | "warning" | "error" | "ok";
   text: string;
 } {
+  const prog = progressText(entry);
   if (entry.downloaded.length > 0) {
     return {
       icon: "download",
       text: `Downloaded ${titles(entry.downloaded)}${
         entry.absLibrariesScanned.length > 0 ? " → ABS updated" : ""
-      }`,
+      }${prog ? ` · ${prog}` : ""}`,
     };
   }
   if (entry.newBooks.length > 0) {
     return { icon: "new", text: `Found new purchase: ${titles(entry.newBooks)}` };
+  }
+  if (prog) {
+    return { icon: "progress", text: `Synced listening ${prog}` };
   }
   if (entry.nestingWarnings.length > 0) {
     return { icon: "warning", text: entry.nestingWarnings[0] };
@@ -77,6 +89,7 @@ function summarize(entry: SyncCycleResult): {
 const ENTRY_ICONS = {
   download: <Download className="h-3.5 w-3.5 text-green-600 dark:text-green-500" />,
   new: <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-500" />,
+  progress: <Headphones className="h-3.5 w-3.5 text-blue-600 dark:text-blue-500" />,
   warning: <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-500" />,
   error: <CircleAlert className="h-3.5 w-3.5 text-destructive" />,
   ok: <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />,
@@ -135,6 +148,8 @@ export function AutoSyncCard() {
       toast.error(result.errors[0]);
     } else if (result.newBooks.length > 0) {
       toast.success(`Found new purchase: ${titles(result.newBooks)}`);
+    } else if (progressText(result)) {
+      toast.success(`Synced listening ${progressText(result)}`);
     } else {
       toast.success("Up to date — no new purchases");
     }

@@ -73,11 +73,30 @@ Audible purchases into Audiobookshelf automatically. Each cycle:
    (known bug; warning appears in the dashboard activity feed)
 6. **ABS scan** — triggers a rescan of every ABS book library so the new title
    shows up immediately
+7. **Listening progress + history** — pulls per-book positions straight from
+   Audible's API (using the same tokens Libation holds, auto-refreshed) and
+   pushes them to the mapped ABS user:
+   - **Change-gated:** each cycle first makes one tiny stats call (daily
+     listening totals). If nothing was played since the last check, the full
+     sync is skipped — a safety full sync still runs every 6h. Manual runs
+     and dry runs always sync fully.
+   - Progress is one-way and forward-only: ABS is updated only when Audible is
+     ahead, and finished books are never un-finished or moved backwards
+   - Listening sessions are derived from position deltas between cycles and
+     upserted as one session per book per day (listen on the Audible app, and
+     ABS stats fill in within the next cycle)
+   - Map each Audible account to an ABS user on the Settings page (a single
+     account defaults to the active user); a dry-run button there previews
+     what would sync without writing anything
 
 Control it from the **Auto-Sync card on the dashboard**: enable/disable, change
 the poll interval (5–60 min, default 10), see last/next check, recent activity,
 and a Sync Now button. The Libation container's own `SLEEP_TIME=6h` loop stays
 on as a fallback if the web app is down.
+
+For deep history (years of past listening), the CSV **Import wizard** is still
+the tool — the automated sync records history from now on, since Audible's API
+only exposes current positions, not past days.
 
 Settings persist in `/app/data/config.json`; activity in `/app/data/sync-log.json`
 (both on the `web-data` volume). Environment overrides (defaults for first run):
@@ -86,6 +105,7 @@ Settings persist in `/app/data/config.json`; activity in `/app/data/sync-log.jso
 |----------|---------|---------|
 | `AUTO_SYNC_ENABLED` | `true` | Set `false` to start disabled |
 | `AUTO_SYNC_INTERVAL_MINUTES` | `10` | Poll interval |
+| `AUTO_SYNC_PROGRESS` | `true` | Set `false` to skip listening-progress sync |
 | `BOOKS_DIR` | `/audiobooks/Audiobooks` | Folder checked for nested book folders |
 
 Watch it work: `docker logs -f audible-abs-web` and look for `[auto-sync]` lines.

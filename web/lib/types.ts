@@ -166,6 +166,35 @@ export interface ImportReport {
 export interface AutoSyncSettings {
   enabled: boolean;
   intervalMinutes: number;
+  /** Also sync Audible listening progress/history each cycle (default true) */
+  syncProgress?: boolean;
+  /** Audible accountId → ABS user key (e.g. "drew"). Unmapped accounts are skipped. */
+  accountMap?: Record<string, string>;
+}
+
+export interface ProgressSyncAccountResult {
+  accountId: string;
+  accountName: string;
+  absUser?: string;
+  matchedBooks: number;
+  progressUpdated: number;
+  sessionsSynced: number;
+  skipped?: string;
+  /** True when skipped because the listening-stats gate saw no new activity */
+  idle?: boolean;
+  /** Minutes listened today per Audible's stats (from the gate check) */
+  todayListeningMin?: number;
+  errors: string[];
+  /** Sample of what changed (title + position), for dry runs and logging */
+  examples: string[];
+}
+
+export interface ProgressSyncSummary {
+  dryRun: boolean;
+  accounts: ProgressSyncAccountResult[];
+  progressUpdated: number;
+  sessionsSynced: number;
+  errors: string[];
 }
 
 export interface SyncCycleResult {
@@ -181,6 +210,9 @@ export interface SyncCycleResult {
   nestingWarnings: string[];
   /** ABS libraries we asked to rescan */
   absLibrariesScanned: string[];
+  /** Listening-progress sync results (absent when disabled or skipped) */
+  progressUpdated?: number;
+  sessionsSynced?: number;
   errors: string[];
   skipped?: "libation-busy" | "cycle-in-progress";
 }

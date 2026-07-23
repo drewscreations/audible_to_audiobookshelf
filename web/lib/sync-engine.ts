@@ -70,6 +70,8 @@ export function getSettings(): AutoSyncSettings {
   return {
     enabled: settings.enabled !== false,
     intervalMinutes: clampInterval(settings.intervalMinutes),
+    syncProgress: settings.syncProgress !== false,
+    accountMap: settings.accountMap || {},
   };
 }
 
@@ -83,6 +85,8 @@ export function updateSettings(partial: Partial<AutoSyncSettings>): AutoSyncSett
   const next: AutoSyncSettings = {
     enabled: partial.enabled ?? current.enabled,
     intervalMinutes: clampInterval(partial.intervalMinutes ?? current.intervalMinutes),
+    syncProgress: partial.syncProgress ?? current.syncProgress,
+    accountMap: partial.accountMap ?? current.accountMap,
   };
   saveConfig({ autoSync: next });
 
@@ -323,6 +327,24 @@ export async function runSyncCycle(
       }
       await triggerAbsScans(result);
     }
+
+    // ── Listening progress + history sync (Audible → ABS) ──
+    // Scheduled cycles use the cheap stats gate; manual runs sync fully.
+    if (getSettings().syncProgress) {
+      try {
+        const { syncListeningProgress } = await import("./progress-sync");
+        const progress = await syncListeningProgress({
+          force: trigger === "manual",
+        });
+        result.progressUpdated = progress.progressUpdated;
+        result.sessionsSynced = progress.sessionsSynced;
+        result.errors.push(...progress.errors);
+      } catch (e) {
+        result.errors.push(
+          `Progress sync failed: ${e instanceof Error ? e.message : e}`
+        );
+      }
+    }
   } finally {
     state.cycleRunning = false;
     result.finishedAt = new Date().toISOString();
@@ -334,6 +356,8 @@ export async function runSyncCycle(
       result.newBooks.length > 0 ||
       result.downloaded.length > 0 ||
       result.nestingWarnings.length > 0 ||
+      (result.progressUpdated || 0) > 0 ||
+      (result.sessionsSynced || 0) > 0 ||
       result.errors.length > 0 ||
       trigger === "manual";
     if (notable && !result.skipped) appendActivity(result);
@@ -345,6 +369,9 @@ export async function runSyncCycle(
       console.log(
         `[auto-sync] ${trigger} cycle done in ${secs}s: ` +
           `${result.newBooks.length} new, ${result.downloaded.length} downloaded` +
+          (result.progressUpdated !== undefined
+            ? `, progress: ${result.progressUpdated} book(s), ${result.sessionsSynced ?? 0} session(s)`
+            : "") +
           (result.absLibrariesScanned.length > 0
             ? `, ABS scan: ${result.absLibrariesScanned.join(", ")}`
             : "") +
