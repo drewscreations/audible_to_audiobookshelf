@@ -17,15 +17,17 @@ Portainer (manages stack)
   |
   +-- audible-abs-web (Next.js) ── port 3000
   |     Proxies ABS API, reads Libation DB, manages containers
+  |     AUTO-SYNC: polls Audible every 10 min, downloads new
+  |     purchases via Libation, triggers ABS library scans
   |
-  +-- libation (rmcrackan/libation) ── headless, auto-scans every 6h
+  +-- libation (rmcrackan/libation) ── headless, 6h scan loop (fallback)
   |     Downloads to /data (shared with ABS)
   |
   +-- audiobookshelf (existing) ── port 13378
         Reads /audiobooks (same folder Libation writes to)
 ```
 
-**Key:** Libation's download directory and ABS's library directory point to the same NAS folder. When Libation downloads a book, ABS auto-detects it.
+**Key:** Libation's download directory and ABS's library directory point to the same NAS folder. The web app's auto-sync loop notices a new purchase within minutes, downloads it, and forces an ABS rescan — no manual steps.
 
 ---
 
@@ -47,12 +49,46 @@ Access at `http://<nas-tailscale-ip>:3000`
 
 ### Features
 
+- **Auto-sync:** New Audible purchases land in ABS within minutes, hands-free (see below)
 - **Multi-user:** Switch between Drew, Mo, and Root ABS accounts
 - **Audible token refresh:** Renew expired Audible tokens from the web UI (no desktop app needed)
 - **One-click scan/download:** Trigger Libation scan and download from the dashboard
 - **ABS library browser:** Cover art grid with search, ASIN badges
 - **Listening stats import:** 5-step wizard (upload CSV, parse, match ASINs, sync sessions, results)
 - **Dark mode** with system preference detection
+
+---
+
+## Auto-Sync (purchase → ABS in minutes)
+
+The web app runs a background scheduler (started on server boot) that gets new
+Audible purchases into Audiobookshelf automatically. Each cycle:
+
+1. **Skip if busy** — checks that no LibationCli process is already running
+   (avoids clashing with the container's own 6h loop or a manual download)
+2. **Scan** — `LibationCli scan` discovers new purchases into the Libation DB
+3. **Download** — if any books are pending, `LibationCli liberate` downloads them
+4. **Verify** — diffs the Libation DB to confirm what actually downloaded
+5. **Nesting check** — warns if Libation nested one book's folder inside another
+   (known bug; warning appears in the dashboard activity feed)
+6. **ABS scan** — triggers a rescan of every ABS book library so the new title
+   shows up immediately
+
+Control it from the **Auto-Sync card on the dashboard**: enable/disable, change
+the poll interval (5–60 min, default 10), see last/next check, recent activity,
+and a Sync Now button. The Libation container's own `SLEEP_TIME=6h` loop stays
+on as a fallback if the web app is down.
+
+Settings persist in `/app/data/config.json`; activity in `/app/data/sync-log.json`
+(both on the `web-data` volume). Environment overrides (defaults for first run):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AUTO_SYNC_ENABLED` | `true` | Set `false` to start disabled |
+| `AUTO_SYNC_INTERVAL_MINUTES` | `10` | Poll interval |
+| `BOOKS_DIR` | `/audiobooks/Audiobooks` | Folder checked for nested book folders |
+
+Watch it work: `docker logs -f audible-abs-web` and look for `[auto-sync]` lines.
 
 ---
 
@@ -94,9 +130,9 @@ Access at `http://<nas-tailscale-ip>:3000`
 ### After Deployment
 
 - Web app: `http://<tailscale-ip>:3000`
-- Libation auto-scans every 6 hours and downloads new books
-- ABS auto-detects new files in its library folder
-- Use the web dashboard to monitor, trigger scans, and manage tokens
+- Auto-sync polls Audible every 10 minutes, downloads new purchases, and
+  triggers ABS rescans (Libation's 6h loop remains as fallback)
+- Use the web dashboard to monitor auto-sync, trigger scans, and manage tokens
 
 ---
 
@@ -176,8 +212,18 @@ AUDIBLE_SINCE=2025-01-01
 - Ensure the config volume uses a named Docker volume, not a bind mount.
 
 ### Books not appearing in ABS after download
+- Auto-sync triggers ABS scans automatically after each download — check the
+  dashboard's Auto-Sync activity feed and `docker logs audible-abs-web`
+  (`[auto-sync]` lines) for errors first.
 - Verify Libation's `/data` mount points to the same directory as ABS's library folder.
-- Trigger an ABS library scan: `POST /api/libraries/{id}/scan` with admin token.
+- Manually trigger an ABS library scan: `POST /api/libraries/{id}/scan` with admin token.
+
+### Auto-sync not running
+- The scheduler starts with the web container — check `docker logs audible-abs-web`
+  for `[auto-sync] scheduler started`.
+- Make sure it's enabled on the dashboard's Auto-Sync card.
+- Cycles skip while another LibationCli process is running (shown as
+  "Libation is busy") — this is normal during the container's own 6h scan.
 
 ### Container can't reach the internet
 - Use `network_mode: host` in docker-compose.yml.

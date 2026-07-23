@@ -11,6 +11,11 @@ const DEFAULT_CONFIG: AppConfig = {
   libraries: [],
   batchSize: 250,
   finishThreshold: 0.99,
+  autoSync: {
+    enabled: process.env.AUTO_SYNC_ENABLED !== "false",
+    intervalMinutes:
+      parseInt(process.env.AUTO_SYNC_INTERVAL_MINUTES || "", 10) || 10,
+  },
 };
 
 export function loadConfig(): AppConfig {

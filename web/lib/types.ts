@@ -161,6 +161,40 @@ export interface ImportReport {
   unmatchedAsinSample: string[];
 }
 
+// ── Auto-Sync Types ──
+
+export interface AutoSyncSettings {
+  enabled: boolean;
+  intervalMinutes: number;
+}
+
+export interface SyncCycleResult {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  trigger: "scheduled" | "manual";
+  /** ASINs first seen in the Libation DB during this cycle (new purchases) */
+  newBooks: { asin: string; title: string }[];
+  /** ASINs that went from not-downloaded to downloaded during this cycle */
+  downloaded: { asin: string; title: string }[];
+  /** Book folders detected nested inside another book's folder */
+  nestingWarnings: string[];
+  /** ABS libraries we asked to rescan */
+  absLibrariesScanned: string[];
+  errors: string[];
+  skipped?: "libation-busy" | "cycle-in-progress";
+}
+
+export interface SyncStatus {
+  settings: AutoSyncSettings;
+  schedulerActive: boolean;
+  cycleRunning: boolean;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  lastResult?: SyncCycleResult;
+  activity: SyncCycleResult[];
+}
+
 // ── Config Types ──
 
 export interface AppConfig {
@@ -172,6 +206,7 @@ export interface AppConfig {
   audibleSince?: string;
   batchSize: number;
   finishThreshold: number;
+  autoSync?: AutoSyncSettings;
 }
 
 // ── API Response Types ──

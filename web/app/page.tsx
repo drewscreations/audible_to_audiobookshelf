@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { AutoSyncCard } from "@/components/dashboard/auto-sync-card";
 import type { ABSLibrary } from "@/lib/types";
 
 interface DashboardData {
@@ -210,6 +211,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Auto-Sync */}
+      <AutoSyncCard />
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

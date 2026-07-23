@@ -197,6 +197,27 @@ export async function libationDownload(options?: {
 }
 
 /**
+ * Check whether a LibationCli process is currently running inside the container
+ * (the container's own 6h scan loop, or a scan/liberate we exec'd earlier).
+ * Used to avoid overlapping LibationCli runs, which contend on the SQLite DB.
+ *
+ * The bracket in "Libation[C]li" keeps the grep from matching its own cmdline.
+ * Returns false on any error so the caller proceeds and surfaces the real failure.
+ */
+export async function isLibationBusy(): Promise<boolean> {
+  try {
+    const { stdout } = await portainerExec([
+      "sh",
+      "-c",
+      'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\\0" "\\n" | grep -q "Libation[C]li" && echo busy || echo idle',
+    ]);
+    return stdout.includes("busy");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check if the Libation Docker container is running via Portainer.
  */
 export async function isContainerRunning(): Promise<boolean> {

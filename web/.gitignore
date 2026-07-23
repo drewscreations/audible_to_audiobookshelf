@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# runtime data: config.json holds ABS tokens, plus sync log + import reports
+/data/
+
 # vercel
 .vercel
 
